@@ -1,0 +1,11 @@
+gradio
+anthropic
+yfinance
+python-dotenv
+crewai
+langchain
+langchain-anthropic
+langsmith
+chromadb
+beautifulsoup4
+requests

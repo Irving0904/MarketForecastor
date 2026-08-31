@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "portfolio-advisor",
+      "runtimeExecutable": "python",
+      "runtimeArgs": ["main.py"],
+      "port": 7860
+    }
+  ]
+}
