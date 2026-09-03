@@ -6,6 +6,21 @@ routes each question to either a quick fact-lookup agent or a multi-agent
 deliberation crew, and keeps a separate memory per client so an advisor can
 manage several client sessions at once.
 
+## Problem
+
+A financial advisor managing several clients needs fast, specific answers
+about each portfolio — "what's this holding's dividend yield," "why did it
+move," "should we rebalance given this concentration" — without either (a)
+manually digging through market data and filings per client, or (b) trusting
+an LLM's answer at face value, since an ungrounded or advice-framed response
+from a tool with no licensed advisor behind it is a real liability. This
+project targets both halves: routing simple lookups and complex judgment
+calls to the pipeline suited for each, and wrapping every generated answer in
+guardrails and evaluators (data-access limits, a read-only audit at startup,
+advice-language flagging, faithfulness/relevancy scoring, and a visible
+confidence flag) so the advisor — not the model — makes the final call. See
+the "Guardrails & evaluators" section below for the full design.
+
 ## Application flow
 
 ```mermaid
@@ -294,6 +309,10 @@ python main.py
 ```
 
 Opens the app at `http://localhost:7860`.
+
+Sample conversations, evaluator run output, and guardrail examples — all
+real captured output, not idealized — are in
+[docs/EXAMPLES.md](docs/EXAMPLES.md).
 
 ---
 
