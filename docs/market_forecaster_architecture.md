@@ -64,12 +64,12 @@ flowchart TD
     API["API<br/>(FastAPI)"]
     PII["PII Redaction"]
 
-    subgraph SG_ROUTE["Portfolio or question?"]
+    subgraph SG_ROUTE ["Portfolio or question?"]
         PCHECK{"looks_like_portfolio?"}
     end
 
-    subgraph SG_PROFILE["Build profile"]
-        subgraph PCREW["Profile Summary Crew"]
+    subgraph SG_PROFILE ["Build profile"]
+        subgraph PCREW ["Profile Summary Crew"]
             AGG["Data Aggregator"]
             PROFANALYST["Portfolio Analyst"]
             AGG --> PROFANALYST
@@ -80,7 +80,7 @@ flowchart TD
         AGG --> CROSSCHECK
     end
 
-    subgraph SG_ANSWER["Answer the question"]
+    subgraph SG_ANSWER ["Answer the question"]
         COORD["Router Agent<br/>(straight or tot?)"]
         REACT["ReAct Agent"]
         TOT["ToT Crew"]
@@ -88,26 +88,26 @@ flowchart TD
         COORD --> TOT
     end
 
-    subgraph OBS["Observability"]
+    subgraph OBS ["Observability"]
         OBS1["Prompts, agent calls,<br/>tool calls"]
         OBS2["CPU, memory,<br/>disk (planned)"]
     end
 
-    subgraph SG_GUARD["Guardrails &amp; evaluators"]
-        AUTHZ["Guardrails<br/>(tool access, read-only audit)"]
-        EVAL["Evaluators<br/>(faithfulness, relevancy)"]
+    subgraph SG_GUARD ["Guardrails &amp; evaluators"]
+        AUTHZ["Guardrails"]
+        EVAL["Evaluators"]
         CONTENT["ContentPolicyGuard"]
         CONF["ConfidenceRouter"]
         CONTENT --> CONF
     end
 
-    subgraph SG_STORE["Per-advisor storage"]
+    subgraph SG_STORE ["Per-advisor storage"]
         SESSION[("Session Store<br/>(in-memory)")]
         SQLITE_DB[("clients.db<br/>SQLite · per-advisor")]
         SQLITE_DB -. load/save .-> SESSION
     end
 
-    subgraph LLMS["LLM Provider"]
+    subgraph LLMS ["LLM Provider"]
         ANTHROPIC["Anthropic<br/>Claude Sonnet 5"]
     end
 

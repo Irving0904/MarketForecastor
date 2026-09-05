@@ -23,22 +23,31 @@ the "Guardrails & evaluators" section below for the full design.
 
 ## Application flow
 
+For the system's shape at a glance and a component-by-component breakdown,
+see [docs/market_forecaster_architecture.md](docs/market_forecaster_architecture.md)
+(a high-level overview diagram plus a detailed one, boxes aligned 1:1 between
+the two). The flow below is the same pipeline traced through the actual
+code paths — `orchestrator.py::respond()` and what it calls.
+
 ```mermaid
 flowchart TD
-    A[Advisor message] --> B{looks_like_portfolio?}
+    Z[Advisor signs in with Google] --> A[Advisor message]
+    A --> B{looks_like_portfolio?}
     B -- yes --> C[parse_portfolio]
     C --> D[fetch_yahoo_data per ticker<br/>price/dividends/news/earnings/history<br/>15-min TTL cache]
     D --> E[Profile Summary Crew - CrewAI<br/>Data Aggregator to Portfolio Analyst]
-    E --> F[Profile summary shown to advisor<br/>saved into active client's session]
+    E --> F[FaithfulnessEvaluator check<br/>+ rollup alerts + Alpha Vantage cross-check]
+    F --> P[Profile summary shown to advisor<br/>saved into active client's session + clients.db]
 
     B -- no --> G{Active client selected<br/>and has a profile?}
     G -- no --> H[Prompt: paste a portfolio first]
     G -- yes --> I[router_agent - LangChain<br/>classify: straight or tot]
     I -- straight --> J[ReAct agent - LangChain<br/>get_holding_data / search_filings / search_client_history]
     I -- tot --> K[ToT Crew - CrewAI<br/>3 Analyst lenses to Risk Critic to Synthesizer]
-    J --> L[Answer shown to advisor]
+    J --> L[ContentPolicyGuard + RelevancyEvaluator<br/>ConfidenceRouter flag for ToT answers]
     K --> L
-    L --> M[Trace tab logs question + answer + route<br/>long responses collapse behind a details toggle]
+    L --> M[Answer shown to advisor]
+    M --> N[Trace tab logs question + answer + route<br/>long responses collapse behind a details toggle]
 ```
 
 Live progress (via `gr.Progress`) narrates each stage as it runs — e.g.
@@ -57,10 +66,12 @@ Two independent agent stacks are used side by side:
   work: classifying a question, and the ReAct tool-calling loop for
   fact lookups.
 
-Every session is scoped to a **client**: the advisor creates or selects a
-client from the Clients tab, and that client's portfolio, chat history, and
-trace log are stored independently in memory (see [Clients & sessions
-model](#clients--sessions-model)).
+Every session is scoped to both an **advisor** (Google sign-in — see
+[Authentication: Google sign-in](#authentication-google-sign-in)) and, within that advisor's own
+account, a **client**: the advisor creates or selects a client from the
+Clients tab, and that client's portfolio, chat history, and trace log are
+stored independently, isolated from every other advisor's clients (see
+[Clients & sessions model](#clients--sessions-model)).
 
 ## Folder & code hierarchy
 
