@@ -1,5 +1,54 @@
 # Market Forecaster — System Architecture
 
+## High-level overview
+
+The short version, for walking through the system before diving into the
+detailed diagram below: an advisor signs in with Google, talks to a chat
+UI, and either submits a portfolio (built into a profile using live
+market data) or asks a question (answered via a quick lookup or a deeper
+multi-agent analysis, depending on what the question needs). Every answer
+passes through guardrails and evaluators before reaching the advisor, and
+each advisor's data is stored separately from every other advisor's.
+
+```mermaid
+flowchart TD
+    ADVISOR["Advisor<br/>(signs in with Google)"]
+    UI["Chat UI"]
+    ROUTE{"Portfolio or<br/>question?"}
+    PROFILE["Build profile<br/>(market data + AI summary)"]
+    ANSWER["Answer the question<br/>(quick fact or deep analysis)"]
+    GUARD["Guardrails &amp; evaluators<br/>(safety checks on every answer)"]
+    STORE[("Per-advisor storage<br/>(each advisor sees only their own clients)")]
+
+    ADVISOR --> UI --> ROUTE
+    ROUTE -- portfolio --> PROFILE
+    ROUTE -- question --> ANSWER
+    PROFILE --> GUARD
+    ANSWER --> GUARD
+    GUARD --> UI
+    PROFILE --> STORE
+    STORE -.-> ROUTE
+
+    classDef blue fill:#cfe2f3,stroke:#6fa8dc,color:#1c2833
+    classDef green fill:#d9ead3,stroke:#93c47d,color:#1c2833
+    classDef purple fill:#e0d3f2,stroke:#9370c7,color:#1c2833
+    classDef store fill:#a4c2f4,stroke:#3d85c6,color:#1c2833
+
+    class ADVISOR,UI,ROUTE blue
+    class PROFILE,ANSWER green
+    class GUARD purple
+    class STORE store
+```
+
+Every box above expands into several real components in the detailed
+diagram below — e.g. "Build profile" is actually the Data Aggregator and
+Portfolio Analyst crew plus the rollup-alert and cross-source checks, and
+"Guardrails & evaluators" covers five separate, independently-testable
+components. Use this one to explain the shape of the system; use the one
+below to point at a specific piece of it.
+
+## Detailed architecture
+
 Aligned to the reference banking multi-agent pattern (coordinator/sub-agent, per-domain tool servers, observability, evaluation, session store), with Google added as the identity provider.
 
 ```mermaid
