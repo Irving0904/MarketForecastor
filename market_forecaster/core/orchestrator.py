@@ -18,7 +18,12 @@ from market_forecaster.agents.profile_crew import build_profile_summary_crew
 from market_forecaster.agents.react_agent import react_pipeline
 from market_forecaster.agents.router import router_agent
 from market_forecaster.agents.tot_crew import tot_pipeline
-from market_forecaster.core.alerts import build_portfolio_alerts, format_rollup_line
+from market_forecaster.core.alerts import (
+    build_portfolio_alerts,
+    format_cross_check_line,
+    format_rollup_line,
+)
+from market_forecaster.data import alpha_vantage
 from market_forecaster.data.market_data import fetch_yahoo_data
 from market_forecaster.data.parser import looks_like_portfolio, parse_portfolio
 from market_forecaster.evaluators import FaithfulnessEvaluator, RelevancyEvaluator
@@ -54,6 +59,23 @@ def _check_faithfulness(summary: str, raw_data: dict) -> str:
             "fetched market data — verify before relying on it.]\n\n" + summary
         )
     return summary
+
+
+def _check_cross_source(raw_data: dict) -> str:
+    """Cross-checks each ticker's Yahoo-sourced earnings/news against
+    Alpha Vantage, a fully independent second source. Never blocks: no
+    API key, an exhausted rate limit, or any request failure all degrade
+    to no cross-check line at all, same as a real agreement between the
+    two sources would."""
+    try:
+        discrepancies = []
+        for ticker, entry in raw_data.items():
+            if isinstance(entry, dict) and "error" not in entry:
+                discrepancies.extend(alpha_vantage.cross_check_ticker(ticker, entry))
+        return format_cross_check_line(discrepancies)
+    except Exception:
+        logger.exception("respond: cross-source check itself failed, skipping")
+        return ""
 
 
 def _check_answer(message: str, answer: str) -> str:
@@ -144,9 +166,10 @@ def respond(
         if old_raw_data:
             alerts = build_portfolio_alerts(old_raw_data, raw_data)
             rollup = format_rollup_line(alerts, len(tickers))
+        cross_check = _check_cross_source(raw_data)
         logger.info("respond: profile built for tickers=%s", tickers)
         return (
-            f"{rollup}Got it — here's your profile:\n\n{summary}\n\n"
+            f"{rollup}{cross_check}Got it — here's your profile:\n\n{summary}\n\n"
             "Ask me anything about it.",
             profile_state,
             "portfolio",

@@ -68,6 +68,15 @@ def get_google_oauth_credentials() -> tuple[str, str]:
     return client_id, client_secret
 
 
+def get_alpha_vantage_api_key() -> str | None:
+    """Optional -- Alpha Vantage is a secondary data source used only to
+    cross-check Yahoo Finance's earnings/news for the tickers in a
+    submitted portfolio, never a hard requirement. A missing key just
+    means that cross-check is silently skipped (see data/alpha_vantage.py),
+    unlike the required-secret checks above which fail app startup."""
+    return os.environ.get("ALPHA_VANTAGE_API_KEY")
+
+
 def get_session_secret() -> str:
     """Signs the session cookie that holds an advisor's identity between
     requests. Required, not defaulted: a missing or predictable secret

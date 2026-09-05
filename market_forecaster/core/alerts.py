@@ -76,3 +76,16 @@ def format_rollup_line(alerts: list[dict], total_holdings: int) -> str:
         f"📋 **{len(alerts)} of your {total_holdings} holdings had changes "
         f"since your last check-in{high_note}:**\n{bullets}\n\n"
     )
+
+
+def format_cross_check_line(discrepancies: list[dict]) -> str:
+    """Empty string if Alpha Vantage had nothing to flag (no data
+    available, or everything it saw agreed with Yahoo) -- same
+    prepend-directly pattern as format_rollup_line."""
+    if not discrepancies:
+        return ""
+    bullets = "\n".join(f"- {d['detail']}" for d in discrepancies)
+    return (
+        f"🔍 **Cross-source check (Yahoo vs. Alpha Vantage) flagged "
+        f"{len(discrepancies)} item(s):**\n{bullets}\n\n"
+    )

@@ -85,6 +85,10 @@ market_forecaster/
 │   │                             analyst rating, recent news, 3-month price
 │   │                             trend, earnings — plus the CrewAI tool wrapper
 │   │                             used by the Profile Summary Crew's aggregator
+│   ├── alpha_vantage.py         Secondary source, cross-checks Yahoo's
+│   │                             earnings/news sentiment per ticker — never
+│   │                             blocks, degrades silently without a key
+│   │                             or under the free tier's rate limit
 │   ├── cache.py                 Generic in-memory TTLCache (15-min TTL),
 │   │                             keyed per ticker to avoid re-fetching
 │   ├── vector_store.py          Thin ChromaDB wrapper — append-only by
@@ -199,6 +203,32 @@ no rollup line appears at all; nothing is fabricated to fill the gap.
 When there's something to report, a line like *"📋 2 of your 3 holdings
 had changes since your last check-in, 1 high-impact"* (with per-ticker
 detail bullets) is prepended to the profile response.
+
+## Cross-source validation: Alpha Vantage vs. Yahoo Finance
+
+Every ticker in a submitted portfolio is also checked against **Alpha
+Vantage**, a fully independent second data source (`data/alpha_vantage.py`)
+— never a primary source, purely a cross-check on Yahoo's earnings and
+news sentiment. Two things are compared:
+
+- **Earnings**: Alpha Vantage's last reported EPS vs. Yahoo's — flagged if
+  they differ by more than $0.02 (small rounding differences between
+  providers are expected and ignored).
+- **News sentiment vs. price action**: Alpha Vantage's aggregate
+  per-ticker sentiment score vs. the 3-month price trend already in
+  `raw_data` — flagged only when they clearly disagree (e.g. bearish news
+  sentiment while the price is up 5%+ over 3 months, or the reverse).
+
+**This never blocks a profile from building.** A missing
+`ALPHA_VANTAGE_API_KEY`, an exhausted quota, or any request failure all
+degrade silently to "no cross-check available" — confirmed live: Alpha
+Vantage's free tier allows only 1 request/second, and firing the earnings
+and news-sentiment calls back-to-back for the same ticker routinely trips
+that limit, at which point Alpha Vantage returns HTTP 200 with a `Note`
+field instead of data (never a real error status) and the app correctly
+falls back to showing nothing rather than crashing. Results are cached
+for 24 hours (vs. 15 minutes for Yahoo) given the free tier's 25
+requests/day cap.
 
 ## Semantic search: SEC filings + conversation history
 
@@ -333,6 +363,11 @@ LANGSMITH_PROJECT="market-forecaster"
 GOOGLE_CLIENT_ID=your-client-id.apps.googleusercontent.com
 GOOGLE_CLIENT_SECRET=GOCSPX-...
 SESSION_SECRET_KEY=
+
+# Optional — Yahoo vs. Alpha Vantage cross-check (see "Cross-source
+# validation" above). Free key at https://www.alphavantage.co/support/#api-key.
+# Missing key just disables the cross-check; nothing else depends on it.
+ALPHA_VANTAGE_API_KEY=
 ```
 
 **Important**: `.env` is loaded in `market_forecaster/__init__.py`, not
@@ -406,6 +441,7 @@ were resolved, in the order encountered:
 | 20 | `FaithfulnessEvaluator`/`RelevancyEvaluator` logged "no claims parsed, failing open" on real (longer) profile summaries, silently skipping the check | The QAG response is a JSON array of one object per atomic claim; a longer summary decomposes into more claims, and at the original `max_tokens=800` (then 1500) the response hit its cap mid-array with no closing `]`, so `json.loads` failed on the whole thing | Raised the cap to 3000, and made `_parse_qag_json` salvage whichever individual `{...}` claim objects are still complete from a truncated tail via regex, instead of discarding every claim over one truncated one |
 | 21 | A client created mid-session vanished after a page reload/new browser session — found live-testing the guardrails work, unrelated to it | `clients_state`/`client_selector` are seeded once from `client_store.load_all_clients()` at `create_app()` time (server process startup), and Gradio hands every new session a copy of that same static default; nothing re-read the DB after startup, so a client created after the server started was invisible to any session that began afterward — the same category of bug as #8/#9 (constructor defaults vs. live state), just in a different spot | Added a second `demo.load` handler (`refresh_clients_on_load`) that re-reads `client_store.load_all_clients()` fresh on every session start and updates both `clients_state` and `client_selector`'s choices |
 | 22 | Adding Google sign-in raised a real isolation risk beyond what was originally scoped: `client_history` (ChromaDB) had no advisor concept at all, keyed only on `client_id` — an 8-hex locally-random string with no cross-advisor uniqueness guarantee | If two different advisors' clients ever collided on the same short `client_id`, `search_client_history` could surface one advisor's conversation history to a different advisor — a real cross-tenant data leak vector, not just a cosmetic bug | Found and fixed during implementation, not left as a follow-up: `chat_fn` now writes/queries `client_history` under an `f"{advisor_id}:{client_id}"` compound key, so a `client_id` collision across advisors can never cross-surface conversation history. `clients.db`'s own isolation didn't have this gap — it uses a composite `(advisor_id, id)` primary key, which the vector store had no equivalent of until this fix |
+| 23 | An architecture diagram drawn for the capstone presentation listed an "Alpha Vantage Adapter" as if it were already built | It wasn't — the diagram was adapted from a reference template without checking it against the actual codebase, which had exactly one data source (`yfinance`) | Rather than just fixing the diagram, built the real thing: `data/alpha_vantage.py` cross-checks Yahoo's earnings/news against Alpha Vantage for every submitted-portfolio ticker. Live-tested with a real API key: earnings comparison returned matching real data (AAPL EPS 2.02 both sources); the free tier's 1-request/second limit was hit organically during testing (Alpha Vantage returns HTTP 200 with a `Note` field instead of data, never a real error status) and the app correctly degraded to no cross-check line rather than crashing, confirming the "never blocks" design under real rate-limiting, not just a simulated one |
 
 **Resolved**: the router's "why did X move" causal-question limitation
 (previously listed here as unaddressed) is fixed — the `'tot'` bucket now
