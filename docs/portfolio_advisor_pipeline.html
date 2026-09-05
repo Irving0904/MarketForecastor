@@ -4,8 +4,8 @@
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500&display=swap" rel="stylesheet">
 <style>
   :root{
-    --bg:#F2F0EA;
-    --surface:#FFFFFF;
+    --bg:#FFFFFF;
+    --surface:#FBFAF7;
     --ink:#232420;
     --muted:#6E6C63;
     --line:#D3CFC3;
@@ -16,30 +16,8 @@
     --font-mono:'IBM Plex Mono',ui-monospace,SFMono-Regular,Menlo,monospace;
     --font-sans:'IBM Plex Sans',system-ui,-apple-system,sans-serif;
   }
-  @media (prefers-color-scheme: dark){
-    :root:not([data-theme="light"]){
-      --bg:#23261C;
-      --surface:#2E3225;
-      --ink:#EAE7DC;
-      --muted:#A7A395;
-      --line:#40432F;
-      --line-strong:#585B44;
-      --accent:#6FC7AC;
-      --accent-ink:#D9F2E9;
-      --accent-soft:#294A3F;
-    }
-  }
-  :root[data-theme="dark"]{
-    --bg:#15170F;
-    --surface:#1C1F17;
-    --ink:#EAE7DC;
-    --muted:#9B9789;
-    --line:#33362A;
-    --line-strong:#494C3C;
-    --accent:#6FC7AC;
-    --accent-ink:#D9F2E9;
-    --accent-soft:#1E3A31;
-  }
+  /* Deliberately one theme, always white -- no prefers-color-scheme
+     switch, so the page never depends on the viewer's OS/browser setting. */
   *{box-sizing:border-box;}
   body{background:var(--bg);color:var(--ink);font-family:var(--font-sans);}
   .page{max-width:1180px;margin:0 auto;padding:2.5rem 1.5rem 3.5rem;}
