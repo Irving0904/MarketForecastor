@@ -43,6 +43,7 @@ def chat_fn(
     trace_state,
     clients_state,
     active_client_id,
+    request: gr.Request,
     progress=gr.Progress(),
 ):
     if not active_client_id:
@@ -55,8 +56,17 @@ def chat_fn(
             clients_state,
         )
 
+    # ChromaDB's client_history collection has no advisor concept of its
+    # own -- client_id is just a locally-random 8-hex string, so without
+    # this prefix two different advisors' clients could collide and one
+    # advisor's search_client_history could surface another advisor's
+    # conversation. client_store.py's SQL rows don't need this (they're
+    # already scoped by the composite (advisor_id, id) primary key); this
+    # is specifically for the vector store's id/metadata scoping below.
+    scoped_client_id = f"{request.username}:{active_client_id}"
+
     reply, updated_profile_state, route = respond(
-        message, history, profile_state, active_client_id, progress=progress
+        message, history, profile_state, scoped_client_id, progress=progress
     )
     updated_trace_state = (trace_state or []) + [
         {"question": message, "response": reply, "route": route}
@@ -74,22 +84,26 @@ def chat_fn(
             "trace": updated_trace_state,
             "chat": updated_chat,
         }
-        client_store.save_client(active_client_id, clients_state[active_client_id])
+        client_store.save_client(
+            request.username, active_client_id, clients_state[active_client_id]
+        )
 
         # Embed only this turn — never the whole history — into a
         # per-client-growing id space, so this is always a pure append.
+        # Keyed by scoped_client_id (advisor-prefixed), not the raw
+        # client_id, matching what search_client_history queries by.
         turn_index = len(history) // 2
         vector_store.add_chunks(
             "client_history",
             ids=[
-                f"{active_client_id}_{turn_index}_user",
-                f"{active_client_id}_{turn_index}_assistant",
+                f"{scoped_client_id}_{turn_index}_user",
+                f"{scoped_client_id}_{turn_index}_assistant",
             ],
             documents=[message, reply],
             metadatas=[
-                {"client_id": active_client_id, "role": "user", "turn": turn_index},
+                {"client_id": scoped_client_id, "role": "user", "turn": turn_index},
                 {
-                    "client_id": active_client_id,
+                    "client_id": scoped_client_id,
                     "role": "assistant",
                     "turn": turn_index,
                 },
@@ -105,7 +119,7 @@ def chat_fn(
     )
 
 
-def refresh_clients_on_load():
+def refresh_clients_on_load(request: gr.Request):
     """`clients_state`/`client_selector` are seeded once from disk at
     `create_app()` time (server process startup), and Gradio hands every
     new browser session a copy of that same static default -- a client
@@ -113,12 +127,28 @@ def refresh_clients_on_load():
     a reload) never shows up for a session that starts afterward, since
     nothing re-reads the DB after startup. Re-reading it here, on every
     `demo.load`, keeps a fresh session in sync with what's actually on
-    disk instead of a stale process-startup snapshot."""
-    fresh_clients = client_store.load_all_clients()
+    disk instead of a stale process-startup snapshot.
+
+    request.username is the advisor's Google sub -- see
+    auth.get_current_advisor, the auth_dependency passed to
+    gr.mount_gradio_app in main.py. This is only ever reached by an
+    authenticated request in the first place (the / landing page gates
+    entry to /app), so request.username is always set here."""
+    fresh_clients = client_store.load_all_clients(request.username)
     return fresh_clients, gr.update(choices=radio_choices(fresh_clients))
 
 
-def create_client(name, clients_state):
+def get_logged_in_label(request: gr.Request) -> str:
+    email = ""
+    if request.request is not None:
+        email = request.request.session.get("email", "")
+    return (
+        f'<div style="text-align:right; font-size:0.85em; opacity:0.8;">'
+        f"Logged in as {email} · <a href=\"/auth/logout\">Logout</a></div>"
+    )
+
+
+def create_client(name, clients_state, request: gr.Request):
     clients_state = dict(clients_state or {})
     name = (name or "").strip() or f"Client {len(clients_state) + 1}"
 
@@ -138,7 +168,7 @@ def create_client(name, clients_state):
 
     client_id = new_client_id()
     clients_state[client_id] = empty_client(name)
-    client_store.save_client(client_id, clients_state[client_id])
+    client_store.save_client(request.username, client_id, clients_state[client_id])
     return (
         clients_state,
         client_id,
@@ -168,10 +198,10 @@ def switch_client(selected_id, clients_state):
     )
 
 
-def delete_client(active_client_id, clients_state):
+def delete_client(active_client_id, clients_state, request: gr.Request):
     clients_state = dict(clients_state or {})
     clients_state.pop(active_client_id, None)
-    client_store.delete_client(active_client_id)
+    client_store.delete_client(request.username, active_client_id)
     remaining = list(clients_state.items())
     if remaining:
         new_id, new_client = remaining[0]
@@ -212,13 +242,18 @@ def filter_clients(query: str, clients_state: dict):
 
 def create_app() -> gr.Blocks:
     client_store.init_db()
-    loaded_clients = client_store.load_all_clients()
+    # No advisor is known yet at server-startup time (create_app() runs
+    # once, before any request/session exists) -- this is just a
+    # placeholder default. Every real session immediately overwrites both
+    # clients_state and client_selector via the refresh_clients_on_load
+    # demo.load handler below, scoped to whichever advisor is signed in.
 
     with gr.Blocks(title="Portfolio Advisor", fill_height=True) as demo:
         gr.HTML(HEADER_HTML)
+        login_status = gr.HTML("")
         profile_state = gr.State({})
         trace_state = gr.State([])
-        clients_state = gr.State(loaded_clients)
+        clients_state = gr.State({})
         active_client_id = gr.State(None)
         trace_html = gr.HTML(
             value=format_trace([]), elem_id="trace-panel", render=False
@@ -257,7 +292,7 @@ def create_app() -> gr.Blocks:
                             placeholder="Type a client name…",
                         )
                         client_selector = gr.Radio(
-                            choices=radio_choices(loaded_clients),
+                            choices=[],
                             label="Switch client",
                             value=None,
                         )
@@ -283,6 +318,10 @@ def create_app() -> gr.Blocks:
         demo.load(
             fn=refresh_clients_on_load,
             outputs=[clients_state, client_selector],
+        )
+        demo.load(
+            fn=get_logged_in_label,
+            outputs=[login_status],
         )
 
         new_client_btn.click(

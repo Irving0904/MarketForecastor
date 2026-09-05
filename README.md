@@ -65,11 +65,17 @@ model](#clients--sessions-model)).
 ## Folder & code hierarchy
 
 ```
-main.py                          Entry point: builds and launches the Gradio app
+main.py                          Entry point: FastAPI app (Google sign-in
+│                                  routes + Gradio mounted at /app), uvicorn
 market_forecaster/
-├── config.py                    Env loading (.env), API key check, LLM client
+├── config.py                    Env loading (.env), required-secret checks
+│                                 (API key, SEC user agent, Google OAuth
+│                                 credentials, session secret), LLM client
 │                                 factories for LangChain (get_chat_model) and
 │                                 CrewAI (get_crew_llm)
+├── auth.py                      Google OAuth: login/callback/logout routes,
+│                                 the / landing page, and get_current_advisor
+│                                 (the auth_dependency gr.mount_gradio_app uses)
 │
 ├── data/                        Everything that touches raw external data
 │   ├── parser.py                Portfolio text -> holdings (CSV, ticker+shares
@@ -111,8 +117,12 @@ market_forecaster/
 │   │                             portfolio-submission vs. follow-up, and
 │   │                             which agent pipeline handles a follow-up
 │   ├── clients.py                Per-client session shape + id/choice helpers
-│   ├── client_store.py           SQLite persistence for client sessions —
+│   ├── client_store.py           SQLite persistence, partitioned per advisor
+│   │                              (composite (advisor_id, id) primary key) —
 │   │                              long-term memory across app restarts
+│   ├── alerts.py                  Portfolio rollup: diffs a fresh fetch
+│   │                              against a client's prior snapshot for
+│   │                              rating/price changes
 │   └── trace.py                  Formats the Trace tab's HTML from a
 │                                  session's Q&A log
 │
@@ -126,25 +136,52 @@ market_forecaster/
 layers never import from higher ones — `data/` doesn't know CrewAI/LangChain
 exist beyond the one tool wrapper, and `agents/` don't know Gradio exists.
 
+## Authentication: Google sign-in
+
+Every advisor signs in with Google before reaching the app at all — see
+`market_forecaster/auth.py`. The Gradio app itself is mounted at `/app`
+(not `/`); `/` is a plain FastAPI landing page that redirects into `/app`
+if already signed in, or shows a "Sign in with Google" link otherwise. This
+sidesteps relying on Gradio's own (undocumented, for a custom
+`auth_dependency`) unauthenticated-page behavior — the landing page is
+ours, fully controllable and testable. `gr.mount_gradio_app`'s
+`auth_dependency` parameter is the mechanism: it reads the Google `sub`
+(stable unique user id) out of the signed session cookie, and whatever it
+returns becomes `request.username` inside every Gradio event handler that
+declares a `request: gr.Request` parameter — that's how `create_client`,
+`delete_client`, `chat_fn`, and the client-list refresh all know which
+advisor they're acting for.
+
+Every row in `clients.db` is partitioned by that `sub` via a **composite
+primary key** `(advisor_id, id)`, not `id` alone — `id` is a locally
+generated 8-hex-character string with no cross-advisor uniqueness
+guarantee, so keying on the pair means a delete or update scoped to the
+wrong advisor matches zero rows at the SQL level, not just "filtered out"
+in Python. The `client_history` ChromaDB collection (which has no advisor
+concept of its own) gets the same treatment via an `advisor_id:client_id`
+compound key in its ids/metadata, so `search_client_history` can never
+surface a different advisor's conversation even on a client-id collision.
+
 ## Clients & sessions model
 
 `clients_state` (a single `gr.State` dict) is the in-memory source of truth
-during a session: `{client_id: {"name", "profile", "trace", "chat"}}`. The
-Clients tab lets an advisor create a new client (name must be unique,
-case-insensitive — checked via `core/clients.py::name_exists`), search
-clients by name (live-filtered, case-insensitive substring match), switch
-between existing ones (loads that client's chat/profile/trace into view), or
-delete one.
+during a session: `{client_id: {"name", "profile", "trace", "chat"}}`,
+scoped to whichever advisor is signed in (see Authentication above). The
+Clients tab lets an advisor create a new client (name must be unique
+*within their own clients*, case-insensitive — checked via
+`core/clients.py::name_exists`), search clients by name (live-filtered,
+case-insensitive substring match), switch between existing ones (loads that
+client's chat/profile/trace into view), or delete one.
 
 **Persistence**: every create, chat turn (including a portfolio update —
 re-pasting a portfolio for an existing client *replaces* their holdings
 entirely, not merges), and delete is mirrored to `clients.db` (SQLite, via
-`core/client_store.py`) at the project root. On startup, `create_app()`
-loads every persisted client back into `clients_state` before the UI
-renders, so an advisor can close the app and pick up exactly where they
-left off — search a client by name, see their existing portfolio/chat/trace,
-and keep asking questions. The 15-minute ticker cache is *not* persisted —
-only client sessions are.
+`core/client_store.py`) at the project root. Each new browser session
+re-reads that advisor's clients fresh from disk on load (`demo.load` →
+`refresh_clients_on_load`) rather than trusting a stale in-memory snapshot,
+so an advisor can close the app and pick up exactly where they left off on
+any device, signing back in with the same Google account. The 15-minute
+ticker cache is *not* persisted — only client sessions are.
 
 ## Portfolio rollup alerts
 
@@ -291,6 +328,11 @@ LANGSMITH_TRACING=true
 LANGSMITH_ENDPOINT=https://api.smith.langchain.com
 LANGSMITH_API_KEY=lsv2_...
 LANGSMITH_PROJECT="market-forecaster"
+
+# Google sign-in — see "Google OAuth setup" below
+GOOGLE_CLIENT_ID=your-client-id.apps.googleusercontent.com
+GOOGLE_CLIENT_SECRET=GOCSPX-...
+SESSION_SECRET_KEY=
 ```
 
 **Important**: `.env` is loaded in `market_forecaster/__init__.py`, not
@@ -302,13 +344,32 @@ check caches "tracing disabled" for the rest of the process no matter what
 gets set in `os.environ` afterward — `__init__.py` is the one place Python
 guarantees runs before any submodule of this package does.
 
+### Google OAuth setup
+
+1. [Google Cloud Console](https://console.cloud.google.com/) → APIs &
+   Services → Credentials → **Create Credentials** → **OAuth client ID**.
+2. Application type: **Web application**.
+3. Authorized JavaScript origins: `http://localhost:7860`.
+4. Authorized redirect URIs: `http://localhost:7860/auth/callback`.
+5. Copy the generated Client ID and Client Secret into `.env` as
+   `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET`.
+6. Generate a session secret and put it in `SESSION_SECRET_KEY`:
+   ```bash
+   python -c "import secrets; print(secrets.token_hex(32))"
+   ```
+7. If the OAuth consent screen is still in "Testing" publishing status,
+   add each advisor's Google account under **OAuth consent screen → Test
+   users**, or Google will reject their sign-in before it reaches this app.
+
 ## Running
 
 ```bash
 python main.py
 ```
 
-Opens the app at `http://localhost:7860`.
+Opens at `http://localhost:7860` — a "Sign in with Google" landing page.
+Signing in lands at `/app`, the actual Gradio interface, scoped to that
+Google account's own clients.
 
 Sample conversations, evaluator run output, and guardrail examples — all
 real captured output, not idealized — are in
@@ -344,6 +405,7 @@ were resolved, in the order encountered:
 | 19 | `RelevancyEvaluator` flagged a correct, on-topic ReAct answer ("AAPL is at $319.70, up 2.5% over 3mo, analyst target $324.45...") as only 17% relevant to "What is AAPL trading at right now?" | The QAG prompt asked whether each claim was relevant to the *literal* question, so the model marked genuinely useful supporting context (trend, rating, target price) as `NO` for not being the one literal fact asked — a real calibration bug, not a real quality problem with the answer | Rewrote the prompt to explicitly count closely-related supporting context a financial advisor would reasonably include as relevant, not just the singular literal fact; lowered the threshold from 0.7 to 0.6 to match. Re-verified: pass_rate now 1.0 on the same case |
 | 20 | `FaithfulnessEvaluator`/`RelevancyEvaluator` logged "no claims parsed, failing open" on real (longer) profile summaries, silently skipping the check | The QAG response is a JSON array of one object per atomic claim; a longer summary decomposes into more claims, and at the original `max_tokens=800` (then 1500) the response hit its cap mid-array with no closing `]`, so `json.loads` failed on the whole thing | Raised the cap to 3000, and made `_parse_qag_json` salvage whichever individual `{...}` claim objects are still complete from a truncated tail via regex, instead of discarding every claim over one truncated one |
 | 21 | A client created mid-session vanished after a page reload/new browser session — found live-testing the guardrails work, unrelated to it | `clients_state`/`client_selector` are seeded once from `client_store.load_all_clients()` at `create_app()` time (server process startup), and Gradio hands every new session a copy of that same static default; nothing re-read the DB after startup, so a client created after the server started was invisible to any session that began afterward — the same category of bug as #8/#9 (constructor defaults vs. live state), just in a different spot | Added a second `demo.load` handler (`refresh_clients_on_load`) that re-reads `client_store.load_all_clients()` fresh on every session start and updates both `clients_state` and `client_selector`'s choices |
+| 22 | Adding Google sign-in raised a real isolation risk beyond what was originally scoped: `client_history` (ChromaDB) had no advisor concept at all, keyed only on `client_id` — an 8-hex locally-random string with no cross-advisor uniqueness guarantee | If two different advisors' clients ever collided on the same short `client_id`, `search_client_history` could surface one advisor's conversation history to a different advisor — a real cross-tenant data leak vector, not just a cosmetic bug | Found and fixed during implementation, not left as a follow-up: `chat_fn` now writes/queries `client_history` under an `f"{advisor_id}:{client_id}"` compound key, so a `client_id` collision across advisors can never cross-surface conversation history. `clients.db`'s own isolation didn't have this gap — it uses a composite `(advisor_id, id)` primary key, which the vector store had no equivalent of until this fix |
 
 **Resolved**: the router's "why did X move" causal-question limitation
 (previously listed here as unaddressed) is fixed — the `'tot'` bucket now
@@ -360,8 +422,12 @@ question still correctly routes to `straight`.
   `data/parser.py`.
 - Client sessions now persist (`clients.db`), but the ticker cache is still
   in-memory only and resets on restart.
-- `clients.db` is a single SQLite file with no encryption — treat it like
-  `.env`: local-machine trust only, not for shared/multi-user deployment.
+- `clients.db` is a single SQLite file with no encryption at rest — each
+  advisor's rows are properly isolated by Google account (see
+  Authentication above), but the file itself should still be treated like
+  `.env`: local-machine trust only. The app is also localhost-only for now
+  (`https_only=False` on the session cookie, no TLS) — see `main.py`'s
+  comment on exactly what needs flipping before any non-localhost deploy.
 - Full news article ingestion is deliberately deferred — `search_filings`
   covers SEC filings only; yfinance's news feed still only surfaces
   headlines (see `data/market_data.py::fetch_news`).

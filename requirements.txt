@@ -9,3 +9,6 @@ langsmith
 chromadb
 beautifulsoup4
 requests
+authlib
+itsdangerous
+uvicorn

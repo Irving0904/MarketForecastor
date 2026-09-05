@@ -49,3 +49,35 @@ def get_sec_user_agent() -> str:
             "and restart the app to enable SEC filing search."
         )
     return user_agent
+
+
+def get_google_oauth_credentials() -> tuple[str, str]:
+    """Google Cloud Console OAuth 2.0 Client ID (Web application type) --
+    see README Setup for how to create one. Checked at auth.py's
+    module-setup time, so a missing credential fails before the server
+    binds to a port, same as the other required-secret checks here."""
+    client_id = os.environ.get("GOOGLE_CLIENT_ID")
+    client_secret = os.environ.get("GOOGLE_CLIENT_SECRET")
+    if not client_id or not client_secret:
+        raise RuntimeError(
+            "GOOGLE_CLIENT_ID and/or GOOGLE_CLIENT_SECRET is not set. Set "
+            "both in your environment (or .env file) and restart the app "
+            "to enable Google sign-in. See README Setup for how to create "
+            "an OAuth 2.0 Client ID in Google Cloud Console."
+        )
+    return client_id, client_secret
+
+
+def get_session_secret() -> str:
+    """Signs the session cookie that holds an advisor's identity between
+    requests. Required, not defaulted: a missing or predictable secret
+    would let a session cookie be forged."""
+    secret = os.environ.get("SESSION_SECRET_KEY")
+    if not secret:
+        raise RuntimeError(
+            "SESSION_SECRET_KEY is not set. Generate one with "
+            "`python -c \"import secrets; print(secrets.token_hex(32))\"` "
+            "and set it in your environment (or .env file), then restart "
+            "the app."
+        )
+    return secret
