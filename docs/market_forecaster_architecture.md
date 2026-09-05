@@ -49,105 +49,102 @@ below to point at a specific piece of it.
 
 ## Detailed architecture
 
-Aligned to the reference banking multi-agent pattern (coordinator/sub-agent, per-domain tool servers, observability, evaluation, session store), with Google added as the identity provider.
+Same 5 boxes as the high-level overview — **Portfolio or question?**,
+**Build profile**, **Answer the question**, **Guardrails & evaluators**,
+**Per-advisor storage** — drawn here as labeled boundary boxes so each one
+visibly expands into its real components, in the same order and hierarchy
+as above. Nothing here changes which box something belongs to; it only
+adds the detail inside it.
 
 ```mermaid
 flowchart TD
-    UI["Advisor UI<br/>(Gradio chat)"]
-    AUTH_ID["Authentication<br/>Google (OAuth)"]
-    API["API"]
-    PII["PII<br/>Redaction"]
-    AUTHZ["Authorisation<br/>(guardrails.py)"]
-    EVAL["Agent Evaluation<br/>Suite (evaluators.py)"]
+    ADVISOR["Advisor<br/>(Google sign-in)"]
+    UI["Chat UI<br/>(Gradio)"]
+    AUTH_ID["Authentication<br/>(Google OAuth)"]
+    API["API<br/>(FastAPI)"]
+    PII["PII Redaction"]
 
-    subgraph PCREW["Profile Summary Crew<br/>(portfolio submission)"]
-        AGG["Data Aggregator"]
-        PROFANALYST["Portfolio Analyst"]
-        AGG --> PROFANALYST
+    subgraph SG_ROUTE["Portfolio or question?"]
+        PCHECK{"looks_like_portfolio?"}
     end
 
-    ALERTS["Portfolio Rollup<br/>Alerts (alerts.py)"]
+    subgraph SG_PROFILE["Build profile"]
+        subgraph PCREW["Profile Summary Crew"]
+            AGG["Data Aggregator"]
+            PROFANALYST["Portfolio Analyst"]
+            AGG --> PROFANALYST
+        end
+        ALERTS["Portfolio Rollup Alerts"]
+        CROSSCHECK["Alpha Vantage<br/>Cross-check"]
+        AGG --> ALERTS
+        AGG --> CROSSCHECK
+    end
 
-    subgraph AGENTS[" "]
-        COORD["Router Agent<br/>(Coordinator)"]
-        REACT["ReAct<br/>Agent"]
-        TOT["ToT<br/>Crew"]
+    subgraph SG_ANSWER["Answer the question"]
+        COORD["Router Agent<br/>(straight or tot?)"]
+        REACT["ReAct Agent"]
+        TOT["ToT Crew"]
         COORD --> REACT
         COORD --> TOT
     end
 
-    CONTENT["ContentPolicyGuard<br/>(guardrails.py)"]
-    CONF["ConfidenceRouter<br/>(ToT confidence flag)"]
-
-    subgraph LLMS["LLM Providers"]
-        SELF_LLM["Self Hosted<br/>LLM"]
-        THIRD_LLM["Third-party<br/>LLM"]
-    end
-
     subgraph OBS["Observability"]
-        OBS1["Prompts, Agent<br/>calls, Tool Calls<br/>etc."]
-        OBS2["CPU, Memory,<br/>Disk utilisation<br/>etc."]
+        OBS1["Prompts, agent calls,<br/>tool calls"]
+        OBS2["CPU, memory,<br/>disk (planned)"]
     end
 
-    SESSION[("Session Store<br/>(in-memory)")]
-    SESSION_NOTE["Portfolio + profile summary<br/>ToT branch state"]
-    SQLITE_DB[("clients.db<br/>SQLite · per-advisor")]
+    subgraph SG_GUARD["Guardrails &amp; evaluators"]
+        AUTHZ["Guardrails<br/>(tool access, read-only audit)"]
+        EVAL["Evaluators<br/>(faithfulness, relevancy)"]
+        CONTENT["ContentPolicyGuard"]
+        CONF["ConfidenceRouter"]
+        CONTENT --> CONF
+    end
 
-    YAHOO_MCP["Yahoo Finance<br/>Adapter"]
-    AV_MCP["Alpha Vantage<br/>Adapter"]
-    CHROMA_MCP["ChromaDB<br/>Retrieval"]
+    subgraph SG_STORE["Per-advisor storage"]
+        SESSION[("Session Store<br/>(in-memory)")]
+        SQLITE_DB[("clients.db<br/>SQLite · per-advisor")]
+        SQLITE_DB -. load/save .-> SESSION
+    end
+
+    subgraph LLMS["LLM Provider"]
+        ANTHROPIC["Anthropic<br/>Claude Sonnet 5"]
+    end
+
+    YAHOO_MCP["Yahoo Finance"]
+    AV_MCP["Alpha Vantage"]
+    CHROMA_MCP["ChromaDB"]
     SEC_EDGAR["SEC EDGAR<br/>10-K filings"]
 
-    PRICE["get_price"]
-    DIV["get_dividends"]
-    SPLIT["get_splits"]
-    RATING["get_ratings"]
-    EARN["get_earnings"]
-    NEWS["get_news_sentiment"]
-    FILING_CHUNKS["search_filings<br/>(10-K chunks)"]
-    HISTORY_CHUNKS["search_client_history<br/>(past turns)"]
-
-    UI --> AUTH_ID
-    UI --> API
-    API --> PII
-    PII --> PCREW
-    PII --> COORD
+    ADVISOR --> UI --> AUTH_ID --> API --> PII --> PCHECK
+    PCHECK -- portfolio --> AGG
+    PCHECK -- question --> COORD
 
     AGG --> YAHOO_MCP
-    PCREW --> ALERTS
+    CROSSCHECK --> AV_MCP
     SQLITE_DB -. prior snapshot .-> ALERTS
+    PROFANALYST --> EVAL
     ALERTS --> UI
+    CROSSCHECK --> UI
 
-    COORD <--> AUTHZ
+    AUTHZ <--> COORD
     COORD --> EVAL
-    EVAL --> SELF_LLM
-    EVAL --> THIRD_LLM
+    EVAL --> ANTHROPIC
 
-    OBS <--> AGENTS
+    OBS <--> SG_ANSWER
 
     REACT --> YAHOO_MCP
-    REACT --> AV_MCP
     REACT --> CHROMA_MCP
+    CHROMA_MCP --> SEC_EDGAR
     YAHOO_MCP -. reused for citations .-> TOT
 
     REACT --> CONTENT
     TOT --> CONTENT
-    CONTENT --> CONF
     CONF --> UI
+    EVAL --> UI
 
-    AGENTS --> SESSION
-    SESSION --- SESSION_NOTE
-    SQLITE_DB -. load/save per advisor_id .-> SESSION
-
-    YAHOO_MCP --> PRICE
-    YAHOO_MCP --> DIV
-    YAHOO_MCP --> SPLIT
-    YAHOO_MCP --> RATING
-    AV_MCP --> EARN
-    AV_MCP --> NEWS
-    SEC_EDGAR --> CHROMA_MCP
-    CHROMA_MCP --> FILING_CHUNKS
-    CHROMA_MCP --> HISTORY_CHUNKS
+    SG_ANSWER --> SESSION
+    SG_PROFILE --> SESSION
 
     classDef blue fill:#cfe2f3,stroke:#6fa8dc,color:#1c2833
     classDef green fill:#d9ead3,stroke:#93c47d,color:#1c2833
@@ -156,60 +153,80 @@ flowchart TD
     classDef store fill:#a4c2f4,stroke:#3d85c6,color:#1c2833
     classDef purple fill:#e0d3f2,stroke:#9370c7,color:#1c2833
 
-    class UI,AUTH_ID,API,PII,AUTHZ blue
-    class COORD,REACT,TOT,EVAL,YAHOO_MCP,AV_MCP,CHROMA_MCP,SEC_EDGAR,AGG,PROFANALYST green
-    class SELF_LLM,THIRD_LLM tan
-    class PRICE,DIV,SPLIT,RATING,EARN,NEWS,FILING_CHUNKS,HISTORY_CHUNKS,OBS1,OBS2 grey
+    class ADVISOR,UI,AUTH_ID,API,PII blue
+    class COORD,REACT,TOT,YAHOO_MCP,AV_MCP,CHROMA_MCP,SEC_EDGAR,AGG,PROFANALYST green
+    class ANTHROPIC tan
+    class OBS1,OBS2 grey
     class SESSION,SQLITE_DB store
-    class ALERTS,CONTENT,CONF purple
+    class ALERTS,CROSSCHECK,AUTHZ,EVAL,CONTENT,CONF purple
 ```
+
+**Fixed while restructuring**: the previous version wired Alpha Vantage as
+a ReAct Agent tool (`REACT --> AV_MCP`). That never matched the code —
+`data/alpha_vantage.py` is only ever called from the portfolio-submission
+path (`orchestrator.py`'s `_check_cross_source`), not from any ReAct tool.
+It's now drawn from the Alpha Vantage Cross-check node inside **Build
+profile**, where it actually runs.
 
 ## Component Reference
 
-### Entry & Security
+Grouped by the same 5 boxes as both diagrams above.
+
+### Advisor & entry (leads into "Portfolio or question?")
 | Component | Role |
 |---|---|
-| **Advisor UI (Gradio chat)** | Advisor-facing chat entry point — portfolio pasted in, questions asked here |
-| **Authentication** | Google (OAuth) — verifies the advisor's identity before any session starts |
-| **API** | Single entry point into the backend, sitting between the UI and the agent layer |
+| **Advisor** | Signs in with Google — no session exists before this |
+| **Chat UI (Gradio)** | Advisor-facing chat entry point — portfolio pasted in, questions asked here |
+| **Authentication** | Google OAuth — verifies the advisor's identity before any session starts |
+| **API (FastAPI)** | Single entry point into the backend, sitting between the UI and everything else |
 | **PII Redaction** | Strips personally identifiable information from requests before they reach any agent |
-| **Authorisation** | Checked by the Router Agent before dispatching to any sub-agent — enforced by `guardrails.py`'s tool allow-lists and startup action-constraint audit |
 
-### Portfolio Submission Path
+### Portfolio or question?
 | Component | Role |
 |---|---|
-| **Profile Summary Crew** | Runs instead of the question-routing path when the advisor pastes a portfolio (`looks_like_portfolio`) — two CrewAI agents in sequence |
-| **Data Aggregator** | Fetches raw market data for every ticker via the Yahoo Finance Adapter, hands the raw JSON to the Portfolio Analyst |
-| **Portfolio Analyst** | Turns the raw data into the plain-English profile summary shown to the advisor |
+| **`looks_like_portfolio?`** | A cheap heuristic check (no LLM call) — decides whether this message is a portfolio submission or a follow-up question, before anything else runs |
+
+### Build profile
+| Component | Role |
+|---|---|
+| **Profile Summary Crew** | Two CrewAI agents in sequence, run when `looks_like_portfolio` says yes |
+| **Data Aggregator** | Fetches raw market data for every ticker via Yahoo Finance, hands the raw JSON to the Portfolio Analyst |
+| **Portfolio Analyst** | Turns the raw data into the plain-English profile summary shown to the advisor — checked by the faithfulness evaluator before it's shown |
 | **Portfolio Rollup Alerts** | `alerts.py` — diffs the newly fetched data against that same client's *previous* snapshot (read from clients.db) for rating changes and 5%+/10%+ price moves; silent if there's no prior snapshot or nothing changed, never fabricates a change |
+| **Alpha Vantage Cross-check** | `alpha_vantage.py` — checks Yahoo's earnings/news for each ticker against Alpha Vantage, a fully independent second source; optional and never blocking (see "Cross-source validation" above) |
 
-### Agent Layer
+### Answer the question
 | Component | Role |
 |---|---|
-| **Router Agent (Coordinator)** | Classifies each advisor follow-up question and routes it to the correct path; the only agent that talks to Authorisation and Agent Evaluation Suite directly |
-| **ReAct Agent** | Handles straight/factual questions — fetch, then answer. The only agent with live tool access (Yahoo Finance, Alpha Vantage, ChromaDB) |
-| **ToT Crew** | Handles complex/explanatory questions — 3 analyst lenses generate candidate reasoning, a critic scores them, a synthesizer produces the final answer. No tool calls of its own — cites news/earnings already fetched for the profile summary (dashed edge from Yahoo Finance Adapter) rather than making a fresh retrieval call |
+| **Router Agent** | Classifies the question as `straight` or `tot` and routes it; the only agent that talks to Guardrails and Evaluators directly |
+| **ReAct Agent** | Handles straight/factual questions — fetch, then answer. The only agent with live tool access (Yahoo Finance, ChromaDB) |
+| **ToT Crew** | Handles complex/explanatory questions — 3 analyst lenses generate candidate reasoning, a critic scores them, a synthesizer produces the final answer. No tool calls of its own — cites news/earnings already fetched for the profile summary (dashed edge from Yahoo Finance) rather than making a fresh retrieval call |
 
-### LLM & Evaluation
+### Guardrails & evaluators
 | Component | Role |
 |---|---|
-| **Agent Evaluation Suite** | `evaluators.py` — faithfulness, relevancy, and agent-task correctness checks; sits between the Router Agent and the LLM providers |
-| **Self Hosted LLM** | In-house model option — not yet wired in |
-| **Third-party LLM** | External model provider — the model currently in use |
-| **ContentPolicyGuard** | `guardrails.py` — flags advice-like phrasing ("you should buy...") in every ReAct/ToT answer and prepends a disclaimer rather than blocking it |
-| **ConfidenceRouter** | `guardrails.py` — reads the ToT Critic's own self-rated confidence score and flags the answer as low-confidence in the UI when it's weak; ReAct answers skip this (no critic score exists for that path) |
+| **Guardrails** | `guardrails.py` — `DataAccessGuard` (tool allow-lists per agent, checked at construction) and `ActionConstraintGuard` (a startup audit that refuses to launch if any agent has a write-capable tool) |
+| **Evaluators** | `evaluators.py` — `FaithfulnessEvaluator` on the profile summary, `RelevancyEvaluator` on every ReAct/ToT answer, plus offline `AgentTaskEvaluator`/`CalibrationEvaluator` (not on the live request path) |
+| **ContentPolicyGuard** | Flags advice-like phrasing ("you should buy...") in every ReAct/ToT answer and prepends a disclaimer rather than blocking it |
+| **ConfidenceRouter** | Reads the ToT Critic's own self-rated confidence score and flags the answer as low-confidence in the UI when it's weak; ReAct answers skip this (no critic score exists for that path) |
 
-### Tooling Layer (per source)
+### Per-advisor storage
 | Component | Role |
 |---|---|
-| **Yahoo Finance Adapter** | Exposes live data tools to the ReAct Agent (and the Data Aggregator) → **get_price**, **get_dividends**, **get_splits**, **get_ratings** |
-| **Alpha Vantage Adapter** | Exposes secondary-source tools to the ReAct Agent → **get_earnings**, **get_news_sentiment** |
-| **ChromaDB Retrieval** | Exposes semantic search to the ReAct Agent only → **search_filings** (10-K chunks, backed by SEC EDGAR) and **search_client_history** (this client's past turns) |
-| **SEC EDGAR** | Fetches a ticker's latest 10-K on first request; chunked and embedded into ChromaDB, reused by every later query for that ticker (any client, any session) |
-
-### Cross-Cutting
-| Component | Role |
-|---|---|
-| **Observability** | Two feeds: (1) prompts, agent calls, tool calls — LangSmith tracing; (2) CPU, memory, disk utilisation — not yet built. Wraps the whole agent layer. |
 | **Session Store** | In-memory `clients_state` — holds the active portfolio, profile summary, and ToT branch state for the current browser session; the agent group reads/writes it directly |
 | **clients.db** | SQLite, partitioned by `advisor_id` (composite `(advisor_id, id)` primary key) — the durable long-term memory behind Session Store. Survives app restarts and browser sessions; each advisor's Google sign-in only ever loads their own rows, never another advisor's |
+
+### External data sources (shared by Build profile / Answer the question)
+| Component | Role |
+|---|---|
+| **Yahoo Finance** | Live data for every ticker — price, dividends, valuation, analyst rating, news, earnings, 3-month price history. The single primary source everything else is built or checked against |
+| **Alpha Vantage** | Secondary source, cross-checked against Yahoo only (see Build profile above) — never a primary source, never called by the ReAct Agent |
+| **ChromaDB** | Semantic search, ReAct-only → **search_filings** (10-K chunks, backed by SEC EDGAR) and **search_client_history** (this client's past turns) |
+| **SEC EDGAR** | Fetches a ticker's latest 10-K on first request; chunked and embedded into ChromaDB, reused by every later query for that ticker (any client, any session) |
+| **Anthropic (Claude Sonnet 5)** | The only LLM provider — used by every agent, on both the LangChain and CrewAI sides |
+
+### Observability (cross-cutting, wraps "Answer the question")
+| Component | Role |
+|---|---|
+| **Prompts, agent calls, tool calls** | LangSmith tracing — covers the LangChain half only (Router, ReAct); CrewAI's crews call `litellm` directly and aren't traced |
+| **CPU, memory, disk** | Not yet built |
