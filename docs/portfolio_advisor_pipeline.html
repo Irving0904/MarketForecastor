@@ -1,0 +1,245 @@
+<title>Portfolio Advisor Pipeline</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#F2F0EA;
+    --surface:#FFFFFF;
+    --ink:#232420;
+    --muted:#6E6C63;
+    --line:#D3CFC3;
+    --line-strong:#B4AFA0;
+    --accent:#2E6E5E;
+    --accent-ink:#0F2E26;
+    --accent-soft:#DCEAE5;
+    --font-mono:'IBM Plex Mono',ui-monospace,SFMono-Regular,Menlo,monospace;
+    --font-sans:'IBM Plex Sans',system-ui,-apple-system,sans-serif;
+  }
+  @media (prefers-color-scheme: dark){
+    :root:not([data-theme="light"]){
+      --bg:#15170F;
+      --surface:#1C1F17;
+      --ink:#EAE7DC;
+      --muted:#9B9789;
+      --line:#33362A;
+      --line-strong:#494C3C;
+      --accent:#6FC7AC;
+      --accent-ink:#D9F2E9;
+      --accent-soft:#1E3A31;
+    }
+  }
+  :root[data-theme="dark"]{
+    --bg:#15170F;
+    --surface:#1C1F17;
+    --ink:#EAE7DC;
+    --muted:#9B9789;
+    --line:#33362A;
+    --line-strong:#494C3C;
+    --accent:#6FC7AC;
+    --accent-ink:#D9F2E9;
+    --accent-soft:#1E3A31;
+  }
+  *{box-sizing:border-box;}
+  body{background:var(--bg);color:var(--ink);font-family:var(--font-sans);}
+  .page{max-width:1180px;margin:0 auto;padding:2.5rem 1.5rem 3.5rem;}
+  .eyebrow{font-family:var(--font-mono);font-size:12px;letter-spacing:0.08em;text-transform:uppercase;color:var(--accent);margin:0 0 0.6rem;}
+  h1{font-family:var(--font-mono);font-size:28px;font-weight:600;margin:0 0 0.75rem;text-wrap:balance;}
+  .lede{font-size:15.5px;line-height:1.65;color:var(--muted);max-width:66ch;margin:0 0 2rem;}
+  .lede code{font-family:var(--font-mono);font-size:0.92em;color:var(--ink);background:var(--surface);border:1px solid var(--line);border-radius:4px;padding:0.05em 0.35em;}
+  figure{margin:0 0 1.1rem;background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:1.5rem 1.25rem 1rem;}
+  .diagram-scroll{overflow-x:auto;}
+  svg{display:block;min-width:900px;width:100%;height:auto;}
+  figcaption{font-size:13.5px;line-height:1.6;color:var(--muted);border-top:1px solid var(--line);margin-top:1.1rem;padding-top:0.9rem;}
+  figcaption b{color:var(--ink);font-weight:500;}
+  .note{font-size:13.5px;line-height:1.65;color:var(--muted);background:var(--accent-soft);border:1px solid var(--line);border-radius:10px;padding:0.85rem 1rem;margin:0 0 2.25rem;}
+  .note b{color:var(--accent-ink);font-family:var(--font-mono);font-weight:500;}
+  h2{font-family:var(--font-mono);font-size:15px;font-weight:600;letter-spacing:0.02em;text-transform:uppercase;color:var(--muted);margin:0 0 1rem;padding-bottom:0.5rem;border-bottom:1px solid var(--line);}
+  .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:0.9rem;}
+  .card{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:0.95rem 1.05rem;}
+  .card .name{font-family:var(--font-mono);font-size:13px;font-weight:500;color:var(--ink);margin:0 0 0.35rem;}
+  .card .desc{font-size:12.8px;line-height:1.55;color:var(--muted);margin:0;}
+  .card .desc code{font-family:var(--font-mono);font-size:0.95em;color:var(--ink);}
+</style>
+
+<div class="page">
+  <p class="eyebrow">Request lifecycle</p>
+  <h1>How one message moves through Portfolio Advisor</h1>
+  <p class="lede">
+    Every advisor message forks into exactly one of two pipelines the moment
+    it arrives, and both are re-joined at a single point before anything
+    reaches the screen. The fork is <code>looks_like_portfolio()</code>; the
+    re-join is the guardrail layer &mdash; the one piece of this system every
+    other design choice here exists to protect.
+  </p>
+
+  <figure>
+    <div class="diagram-scroll">
+    <svg viewBox="0 0 1160 640" role="img" aria-label="Diagram: an advisor's message enters Chat UI and forks at looks_like_portfolio into a Build-profile pipeline or an Answer-the-question pipeline; both pipelines' LLM-generated output converges on a single Guardrails and Evaluators stage before an annotated answer arcs back to Chat UI, while deterministic rollup and cross-check results bypass that stage entirely.">
+      <defs>
+        <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+          <path d="M1,1 L9,5 L1,9 Z" style="fill:var(--line-strong)"/>
+        </marker>
+        <marker id="arrow-accent" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+          <path d="M1,1 L9,5 L1,9 Z" style="fill:var(--accent)"/>
+        </marker>
+      </defs>
+
+      <!-- containers -->
+      <rect x="605" y="35" width="485" height="225" rx="10" style="fill:none;stroke:var(--line-strong);stroke-width:1.25;stroke-dasharray:5 4"/>
+      <text x="625" y="58" style="font:600 13px var(--font-mono);fill:var(--muted)">BUILD PROFILE</text>
+      <rect x="605" y="395" width="485" height="225" rx="10" style="fill:none;stroke:var(--line-strong);stroke-width:1.25;stroke-dasharray:5 4"/>
+      <text x="625" y="418" style="font:600 13px var(--font-mono);fill:var(--muted)">ANSWER THE QUESTION</text>
+
+      <!-- connectors (drawn first, under nodes) -->
+      <!-- advisor -> chat ui -->
+      <polyline points="190,310 250,310" style="fill:none;stroke:var(--line-strong);stroke-width:1.5" marker-end="url(#arrow)"/>
+      <!-- chat ui -> decision -->
+      <polyline points="400,310 415,310" style="fill:none;stroke:var(--line-strong);stroke-width:1.5" marker-end="url(#arrow)"/>
+      <!-- decision -> AGG (portfolio) -->
+      <polyline points="500,245 500,112 630,112" style="fill:none;stroke:var(--line-strong);stroke-width:1.5" marker-end="url(#arrow)"/>
+      <text x="506" y="180" style="font:400 12px var(--font-sans);fill:var(--muted)">portfolio</text>
+      <!-- decision -> ROUTER (question) -->
+      <polyline points="500,375 500,472 630,472" style="fill:none;stroke:var(--line-strong);stroke-width:1.5" marker-end="url(#arrow)"/>
+      <text x="506" y="435" style="font:400 12px var(--font-sans);fill:var(--muted)">question</text>
+
+      <!-- AGG -> PROF -->
+      <polyline points="780,112 860,112" style="fill:none;stroke:var(--line-strong);stroke-width:1.5" marker-end="url(#arrow)"/>
+      <!-- AGG -> CHECKS -->
+      <polyline points="705,140 705,170" style="fill:none;stroke:var(--line-strong);stroke-width:1.5" marker-end="url(#arrow)"/>
+
+      <!-- ROUTER -> REACT -->
+      <polyline points="780,460 830,460 830,440 860,440" style="fill:none;stroke:var(--line-strong);stroke-width:1.5" marker-end="url(#arrow)"/>
+      <text x="786" y="452" style="font:400 12px var(--font-sans);fill:var(--muted)">straight</text>
+      <!-- ROUTER -> TOT -->
+      <polyline points="780,485 830,485 830,525 860,525" style="fill:none;stroke:var(--line-strong);stroke-width:1.5" marker-end="url(#arrow)"/>
+      <text x="786" y="502" style="font:400 12px var(--font-sans);fill:var(--muted)">tot</text>
+
+      <!-- PROF -> GUARD -->
+      <polyline points="1010,112 1097,112 1097,295 1005,295" style="fill:none;stroke:var(--line-strong);stroke-width:1.5" marker-end="url(#arrow)"/>
+      <!-- REACT -> GUARD -->
+      <polyline points="1010,440 1103,440 1103,320 1005,320" style="fill:none;stroke:var(--line-strong);stroke-width:1.5" marker-end="url(#arrow)"/>
+      <!-- TOT -> GUARD -->
+      <polyline points="1010,525 1109,525 1109,345 1005,345" style="fill:none;stroke:var(--line-strong);stroke-width:1.5" marker-end="url(#arrow)"/>
+
+      <!-- GUARD -> CHAT UI (return arc, routed around the outside) -->
+      <polyline points="1077,265 1130,265 1130,15 325,15 325,280" style="fill:none;stroke:var(--accent);stroke-width:1.75" marker-end="url(#arrow-accent)"/>
+      <text x="700" y="10" style="font:400 12px var(--font-sans);fill:var(--accent);text-anchor:middle">annotated answer</text>
+
+      <!-- chat ui <-> clients.db -->
+      <polyline points="325,340 325,435" style="fill:none;stroke:var(--line-strong);stroke-width:1.5" marker-end="url(#arrow)" marker-start="url(#arrow)"/>
+
+      <!-- nodes -->
+      <!-- ADVISOR -->
+      <rect x="40" y="280" width="150" height="60" rx="8" style="fill:var(--surface);stroke:var(--line-strong);stroke-width:1.25"/>
+      <text x="115" y="305" text-anchor="middle" style="font:500 13px var(--font-mono);fill:var(--ink)">Advisor</text>
+      <text x="115" y="322" text-anchor="middle" style="font:400 11px var(--font-sans);fill:var(--muted)">signs in via Google</text>
+
+      <!-- CHAT UI -->
+      <rect x="250" y="280" width="150" height="60" rx="8" style="fill:var(--surface);stroke:var(--line-strong);stroke-width:1.25"/>
+      <text x="325" y="305" text-anchor="middle" style="font:500 13px var(--font-mono);fill:var(--ink)">Chat UI</text>
+      <text x="325" y="322" text-anchor="middle" style="font:400 11px var(--font-sans);fill:var(--muted)">Gradio, mounted on FastAPI</text>
+
+      <!-- DECISION -->
+      <polygon points="500,245 585,310 500,375 415,310" style="fill:var(--surface);stroke:var(--line-strong);stroke-width:1.25"/>
+      <text x="500" y="304" text-anchor="middle" style="font:500 11px var(--font-mono);fill:var(--ink)">looks_like_</text>
+      <text x="500" y="318" text-anchor="middle" style="font:500 11px var(--font-mono);fill:var(--ink)">portfolio?</text>
+
+      <!-- AGG -->
+      <rect x="630" y="85" width="150" height="55" rx="8" style="fill:var(--surface);stroke:var(--line-strong);stroke-width:1.25"/>
+      <text x="705" y="108" text-anchor="middle" style="font:500 13px var(--font-mono);fill:var(--ink)">Data Aggregator</text>
+      <text x="705" y="124" text-anchor="middle" style="font:400 11px var(--font-sans);fill:var(--muted)">Yahoo Finance</text>
+
+      <!-- PROF -->
+      <rect x="860" y="85" width="150" height="55" rx="8" style="fill:var(--surface);stroke:var(--line-strong);stroke-width:1.25"/>
+      <text x="935" y="108" text-anchor="middle" style="font:500 13px var(--font-mono);fill:var(--ink)">Portfolio Analyst</text>
+      <text x="935" y="124" text-anchor="middle" style="font:400 11px var(--font-sans);fill:var(--muted)">Claude Sonnet 5</text>
+
+      <!-- CHECKS -->
+      <rect x="630" y="170" width="220" height="55" rx="8" style="fill:var(--surface);stroke:var(--line-strong);stroke-width:1.25"/>
+      <text x="740" y="193" text-anchor="middle" style="font:500 12.5px var(--font-mono);fill:var(--ink)">Rollup alerts +</text>
+      <text x="740" y="209" text-anchor="middle" style="font:500 12.5px var(--font-mono);fill:var(--ink)">Alpha Vantage cross-check</text>
+
+      <!-- ROUTER -->
+      <rect x="630" y="445" width="150" height="55" rx="8" style="fill:var(--surface);stroke:var(--line-strong);stroke-width:1.25"/>
+      <text x="705" y="468" text-anchor="middle" style="font:500 13px var(--font-mono);fill:var(--ink)">Router Agent</text>
+      <text x="705" y="484" text-anchor="middle" style="font:400 11px var(--font-sans);fill:var(--muted)">Claude Sonnet 5</text>
+
+      <!-- REACT -->
+      <rect x="860" y="415" width="150" height="50" rx="8" style="fill:var(--surface);stroke:var(--line-strong);stroke-width:1.25"/>
+      <text x="935" y="437" text-anchor="middle" style="font:500 13px var(--font-mono);fill:var(--ink)">ReAct Agent</text>
+      <text x="935" y="452" text-anchor="middle" style="font:400 11px var(--font-sans);fill:var(--muted)">Yahoo Finance, ChromaDB</text>
+
+      <!-- TOT -->
+      <rect x="860" y="500" width="150" height="50" rx="8" style="fill:var(--surface);stroke:var(--line-strong);stroke-width:1.25"/>
+      <text x="935" y="522" text-anchor="middle" style="font:500 13px var(--font-mono);fill:var(--ink)">ToT Crew</text>
+      <text x="935" y="537" text-anchor="middle" style="font:400 11px var(--font-sans);fill:var(--muted)">3 analysts, critic, synthesizer</text>
+
+      <!-- GUARD (accent) -->
+      <rect x="1005" y="265" width="145" height="105" rx="10" style="fill:var(--accent-soft);stroke:var(--accent);stroke-width:1.5"/>
+      <text x="1077" y="300" text-anchor="middle" style="font:600 13px var(--font-mono);fill:var(--accent-ink)">Guardrails &amp;</text>
+      <text x="1077" y="317" text-anchor="middle" style="font:600 13px var(--font-mono);fill:var(--accent-ink)">Evaluators</text>
+      <text x="1077" y="337" text-anchor="middle" style="font:400 11px var(--font-sans);fill:var(--accent-ink)">annotates, never</text>
+      <text x="1077" y="351" text-anchor="middle" style="font:400 11px var(--font-sans);fill:var(--accent-ink)">blocks a reply</text>
+
+      <!-- SQLITE -->
+      <rect x="250" y="435" width="150" height="55" rx="8" style="fill:var(--surface);stroke:var(--line-strong);stroke-width:1.25;stroke-dasharray:2 3"/>
+      <text x="325" y="458" text-anchor="middle" style="font:500 13px var(--font-mono);fill:var(--ink)">clients.db</text>
+      <text x="325" y="474" text-anchor="middle" style="font:400 11px var(--font-sans);fill:var(--muted)">rows scoped to advisor_id</text>
+    </svg>
+    </div>
+    <figcaption>
+      Two pipelines, one checkpoint. <b>Build profile</b> and
+      <b>Answer the question</b> never call each other, but every piece of
+      text either one asks an LLM to write &mdash; the profile summary, the
+      ReAct answer, the ToT synthesis &mdash; passes through the same
+      <b>Guardrails &amp; Evaluators</b> stage before it reaches the
+      advisor. The <b>Rollup alerts + Alpha Vantage cross-check</b> box is
+      the one deliberate exception: it's arithmetic on two API responses,
+      not a model's writing, so it's prepended to the reply directly rather
+      than routed through a guardrail built to catch language a model
+      generated. <b>clients.db</b> rows are addressed by a composite
+      <code>(advisor_id, id)</code> key, so two advisors can never collide
+      on the same client id.
+    </figcaption>
+  </figure>
+
+  <p class="note">
+    <b>Why the fork exists:</b> a portfolio submission is a batch data-processing
+    job &mdash; fetch, aggregate, summarize &mdash; with no ambiguity about what
+    to do with it. A follow-up question is not: <code>Router Agent</code> still
+    has to decide, per question, whether it's a one-fact lookup or something
+    that needs several angles weighed against each other. Collapsing these into
+    one pipeline would mean paying ToT's five-model-call cost for
+    &ldquo;what's AAPL's yield&rdquo;, or answering &ldquo;should I rebalance&rdquo;
+    with a single tool call and no deliberation.
+  </p>
+
+  <h2>What each stage is actually built from</h2>
+  <div class="grid">
+    <div class="card">
+      <p class="name">Data Aggregator &rarr; Portfolio Analyst</p>
+      <p class="desc">A two-agent CrewAI crew. The Aggregator's only tool is a Yahoo Finance wrapper; the Analyst never touches a network call &mdash; it only reasons over the JSON it's handed.</p>
+    </div>
+    <div class="card">
+      <p class="name">Rollup alerts + cross-check</p>
+      <p class="desc">Diffs this fetch against the client's own last-saved snapshot for rating/price moves, and diffs Yahoo's earnings/news against Alpha Vantage. Silent when there's nothing to flag &mdash; never fabricates a change.</p>
+    </div>
+    <div class="card">
+      <p class="name">Router Agent</p>
+      <p class="desc">One LangChain classification call. Defaults toward <code>tot</code> on an ambiguous label, so an open-ended question gets deliberation instead of silently falling to the cheap path.</p>
+    </div>
+    <div class="card">
+      <p class="name">ReAct Agent</p>
+      <p class="desc">A LangChain tool-calling loop with three tools: holding data, SEC filing search, and this client's own conversation history &mdash; the only agent in the system that calls a search index.</p>
+    </div>
+    <div class="card">
+      <p class="name">ToT Crew</p>
+      <p class="desc">Three CrewAI analysts argue from different lenses, a critic scores them, a synthesizer picks a side. No tools of its own &mdash; it cites news already fetched for the profile, never a live lookup.</p>
+    </div>
+    <div class="card">
+      <p class="name">Guardrails &amp; Evaluators</p>
+      <p class="desc"><code>DataAccessGuard</code> and a startup read-only audit run once, at construction; <code>ContentPolicyGuard</code> and <code>ConfidenceRouter</code> run on every reply, annotating rather than rewriting it.</p>
+    </div>
+  </div>
+</div>
