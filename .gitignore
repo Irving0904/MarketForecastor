@@ -5,3 +5,4 @@ clients.db-shm
 chroma_db/
 __pycache__/
 *.pyc
+docs/edit/
