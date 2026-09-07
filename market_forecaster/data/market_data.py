@@ -1,11 +1,9 @@
-"""Yahoo Finance data fetching, plus a CrewAI tool wrapper around it."""
+"""Yahoo Finance data fetching."""
 
-import json
 import logging
 import math
 
 import yfinance as yf
-from crewai.tools import tool as crew_tool
 
 from market_forecaster.data.cache import TTLCache
 
@@ -154,10 +152,56 @@ def fetch_yahoo_data(holdings: list[dict]) -> dict:
     return data
 
 
-@crew_tool("Fetch Market Data")
-def fetch_market_data_tool(tickers: str) -> str:
-    """Fetch price, sector, dividend yield, valuation, analyst-rating,
-    recent news headlines, trailing 3-month price trend, and earnings
-    data for a comma-separated list of stock tickers. Returns JSON."""
-    holdings = [{"ticker": t.strip().upper()} for t in tickers.split(",") if t.strip()]
-    return json.dumps(fetch_yahoo_data(holdings), default=str)
+_MAX_NEWS_PER_TICKER = 3
+
+
+def format_market_data(raw_data: dict) -> str:
+    """Renders fetch_yahoo_data's output as compact per-ticker text, for
+    handing to an LLM as plain task context (never re-echoed through the
+    LLM's own generation -- see profile_crew.py and tot_crew.py, both of
+    which use this as their agents' factual basis: price/valuation/
+    dividend/analyst-rating snapshot, trailing 3-month trend, and recent
+    earnings/news)."""
+    sections = []
+    for ticker, entry in raw_data.items():
+        if not isinstance(entry, dict):
+            continue
+        if "error" in entry:
+            sections.append(f"{ticker}: data unavailable ({entry['error']})")
+            continue
+        lines = [
+            f"price=${entry.get('price')}, market_cap={entry.get('market_cap')}, "
+            f"year_change={entry.get('year_change_pct')}%",
+            f"sector={entry.get('sector')}, industry={entry.get('industry')}",
+            f"dividend_yield={entry.get('dividend_yield_pct')}%, "
+            f"trailing_pe={entry.get('trailing_pe')}, "
+            f"forward_pe={entry.get('forward_pe')}",
+            f"analyst_recommendation={entry.get('analyst_recommendation')}, "
+            f"target_mean_price={entry.get('target_mean_price')}",
+        ]
+        history = entry.get("price_history_3mo") or {}
+        if history:
+            lines.append(
+                f"3mo_price_change={history.get('pct_change')}% "
+                f"(high={history.get('period_high')}, low={history.get('period_low')})"
+            )
+        earnings = entry.get("earnings") or {}
+        if earnings.get("last_earnings_date"):
+            lines.append(
+                f"last_earnings ({earnings['last_earnings_date']}): "
+                f"EPS {earnings.get('last_eps_actual')} vs. "
+                f"{earnings.get('last_eps_estimate')} estimate "
+                f"({earnings.get('last_surprise_pct')}% surprise)"
+            )
+        if earnings.get("next_earnings_date"):
+            lines.append(f"next_earnings_date={earnings['next_earnings_date']}")
+        for article in (entry.get("recent_news") or [])[:_MAX_NEWS_PER_TICKER]:
+            title = article.get("title")
+            if not title:
+                continue
+            lines.append(
+                f'news ({article.get("published") or "undated"}, '
+                f'{article.get("publisher") or "unknown source"}): "{title}"'
+            )
+        sections.append(f"{ticker}:\n  " + "\n  ".join(lines))
+    return "\n\n".join(sections)

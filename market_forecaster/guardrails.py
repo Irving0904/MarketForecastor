@@ -54,7 +54,6 @@ class DataAccessGuard:
     # CrewAI (string tool names) or LangChain (@tool function names)
     # expose them. Extend this when a new tool is added.
     KNOWN_SAFE_TOOLS = {
-        "Fetch Market Data",       # crewai tool -- profile_crew.py aggregator
         "get_holding_data",        # langchain tool -- react_agent.py
         "search_filings",          # langchain tool -- react_agent.py
         "search_client_history",   # langchain tool -- react_agent.py
@@ -109,11 +108,11 @@ class ActionConstraintViolation(Exception):
 # introspected from live crew objects) so this audit can run at import
 # time, before any crew, LLM client, or API key is even touched.
 AGENT_TOOL_REGISTRY: dict[str, list[str]] = {
-    "profile_crew.Market Data Aggregator": ["Fetch Market Data"],
     "profile_crew.Portfolio Analyst": [],
     "tot_crew.Investment Analyst": [],
     "tot_crew.Risk Critic": [],
     "tot_crew.Lead Advisor": [],
+    "tot_crew.Price Forecast Analyst": [],
     "react_agent.ReAct portfolio assistant": [
         "get_holding_data", "search_filings", "search_client_history",
     ],

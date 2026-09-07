@@ -17,7 +17,7 @@ import logging
 from market_forecaster.agents.profile_crew import build_profile_summary_crew
 from market_forecaster.agents.react_agent import react_pipeline
 from market_forecaster.agents.router import router_agent
-from market_forecaster.agents.tot_crew import tot_pipeline
+from market_forecaster.agents.tot_crew import looks_like_forecast_question, tot_pipeline
 from market_forecaster.core.alerts import (
     build_portfolio_alerts,
     format_cross_check_line,
@@ -137,8 +137,8 @@ def respond(
         try:
             _report(progress, 0.1, f"Step 1/3: Fetching market data for {', '.join(tickers)}...")
             raw_data = fetch_yahoo_data(holdings)
-            _report(progress, 0.4, "Step 2/3: Running Profile Summary Crew (Data Aggregator -> Portfolio Analyst)...")
-            crew = build_profile_summary_crew(tickers)
+            _report(progress, 0.4, "Step 2/3: Running Profile Summary Crew (Portfolio Analyst)...")
+            crew = build_profile_summary_crew(raw_data)
             summary = str(crew.kickoff())
             summary = _check_faithfulness(summary, raw_data)
             _report(progress, 0.9, "Step 3/3: Finalizing profile...")
@@ -193,12 +193,14 @@ def respond(
             answer = react_pipeline(message, profile_state, client_id)
             answer = _check_answer(message, answer)
         else:
-            _report(
-                progress,
-                0.5,
-                "Step 3/4: Running ToT strategy analysis "
-                "(3 analysts + critic + synthesis, ~30-60s)...",
+            tot_desc = (
+                "Step 3/4: Running ToT strategy analysis (3 analysts + "
+                "price forecast analyst + critic + synthesis, ~30-60s)..."
+                if looks_like_forecast_question(message)
+                else "Step 3/4: Running ToT strategy analysis "
+                "(3 analysts + critic + synthesis, ~30-60s)..."
             )
+            _report(progress, 0.5, tot_desc)
             answer, confidence_score = tot_pipeline(message, profile_state)
             answer = _check_answer(message, answer)
             if confidence_score is not None:

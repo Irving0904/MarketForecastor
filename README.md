@@ -35,7 +35,7 @@ flowchart TD
     A --> B{looks_like_portfolio?}
     B -- yes --> C[parse_portfolio]
     C --> D[fetch_yahoo_data per ticker<br/>price/dividends/news/earnings/history<br/>15-min TTL cache]
-    D --> E[Profile Summary Crew - CrewAI<br/>Data Aggregator to Portfolio Analyst]
+    D --> E[Profile Summary Crew - CrewAI<br/>Portfolio Analyst summarizes pre-fetched market data]
     E --> F[FaithfulnessEvaluator check<br/>+ rollup alerts + Alpha Vantage cross-check]
     F --> P[Profile summary shown to advisor<br/>saved into active client's session + clients.db]
 
@@ -43,7 +43,7 @@ flowchart TD
     G -- no --> H[Prompt: paste a portfolio first]
     G -- yes --> I[router_agent - LangChain<br/>classify: straight or tot]
     I -- straight --> J[ReAct agent - LangChain<br/>get_holding_data / search_filings / search_client_history]
-    I -- tot --> K[ToT Crew - CrewAI<br/>3 Analyst lenses to Risk Critic to Synthesizer]
+    I -- tot --> K[ToT Crew - CrewAI<br/>3 Analyst lenses + Price Forecast Analyst if forward-looking<br/>to Risk Critic to Synthesizer]
     J --> L[ContentPolicyGuard + RelevancyEvaluator<br/>ConfidenceRouter flag for ToT answers]
     K --> L
     L --> M[Answer shown to advisor]
@@ -52,8 +52,10 @@ flowchart TD
 
 Live progress (via `gr.Progress`) narrates each stage as it runs — e.g.
 "Step 3/4: Running ToT strategy analysis (3 analysts + critic + synthesis,
-~30-60s)..." — so the advisor sees which loop is running, not just a bare
-spinner. The chat input itself is disabled with a prompt to select/create
+~30-60s)..." (or "... + price forecast analyst + critic ..." when the
+question looks forward-looking, e.g. "price forecast", "predict",
+"price target" — see `agents/tot_crew.py`'s `looks_like_forecast_question`)
+— so the advisor sees which loop is running, not just a bare spinner. The chat input itself is disabled with a prompt to select/create
 a client until one is active — a message can't be sent without one, not
 just rejected after the fact.
 
