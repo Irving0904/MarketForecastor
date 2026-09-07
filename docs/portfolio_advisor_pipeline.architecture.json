@@ -1,0 +1,54 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "Portfolio Advisor Pipeline",
+    "output": "portfolio_advisor_pipeline.html",
+    "quality_profile": "showcase",
+    "repository": {
+      "url": "https://github.com/Irving0904/MarketForecastor",
+      "revision": "1ae924baf111135b9ce1fe900128fa161184ad43"
+    },
+    "views": [
+      { "id": "build-profile", "label": "Build a profile", "focus": ["advisor", "chat_ui", "message_router", "portfolio_analyst", "yahoo", "guardrails"], "note": "A pasted portfolio flows through the Portfolio Analyst, never a decision agent." },
+      { "id": "construct-portfolio", "label": "Construct a new portfolio", "focus": ["chat_ui", "message_router", "construction_agents", "guardrails"], "note": "Works whether or not a client is loaded -- checked before the profile-loaded gate." },
+      { "id": "answer-question", "label": "Answer a question", "focus": ["message_router", "router_agent", "react_agent", "tot_crew", "guardrails"], "note": "Router Agent is skipped in favor of ToT Crew when no profile is loaded." }
+    ]
+  },
+  "components": [
+    { "id": "advisor", "type": "external", "label": "Advisor", "sublabel": "OAuth sign-in", "pos": [40, 270], "size": [150, 60] },
+    { "id": "chat_ui", "type": "frontend", "label": "Chat UI", "sublabel": "Gradio on FastAPI", "pos": [220, 270], "size": [150, 60], "sources": [{ "path": "main.py" }] },
+    { "id": "clients_db", "type": "database", "label": "clients.db", "sublabel": "SQLite, per advisor_id", "pos": [220, 420], "size": [150, 55], "sources": [{ "path": "market_forecaster/core/client_store.py" }] },
+    { "id": "message_router", "type": "backend", "label": "Message Router", "sublabel": "cheap gates, no LLM yet", "pos": [430, 260], "size": [190, 80], "sources": [{ "path": "market_forecaster/core/orchestrator.py" }] },
+    { "id": "yahoo", "type": "external", "label": "Yahoo Finance", "sublabel": "price, news, earnings", "pos": [650, 30], "size": [200, 55], "sources": [{ "path": "market_forecaster/data/market_data.py" }] },
+    { "id": "portfolio_analyst", "type": "backend", "label": "Portfolio Analyst", "sublabel": "CrewAI agent", "pos": [650, 130], "size": [200, 60], "sources": [{ "path": "market_forecaster/agents/profile_crew.py" }] },
+    { "id": "construction_agents", "type": "backend", "label": "Equity / Diversified Portfolio Agent", "sublabel": "no client needed", "pos": [650, 235], "size": [260, 65], "sources": [{ "path": "market_forecaster/agents/portfolio_construction.py" }] },
+    { "id": "router_agent", "type": "backend", "label": "Router Agent", "sublabel": "straight vs. tot", "pos": [650, 375], "size": [200, 55], "sources": [{ "path": "market_forecaster/agents/router.py" }] },
+    { "id": "react_agent", "type": "backend", "label": "ReAct Agent", "sublabel": "tool-calling loop", "pos": [950, 280], "size": [170, 55], "sources": [{ "path": "market_forecaster/agents/react_agent.py" }] },
+    { "id": "tot_crew", "type": "backend", "label": "ToT Crew", "sublabel": "analysts + critic + synth", "pos": [950, 390], "size": [170, 65], "sources": [{ "path": "market_forecaster/agents/tot_crew.py" }] },
+    { "id": "guardrails", "type": "security", "label": "Guardrails & Evaluators", "sublabel": "annotates, never blocks", "pos": [1140, 230], "size": [190, 110], "sources": [{ "path": "market_forecaster/guardrails.py" }] }
+  ],
+  "connections": [
+    { "id": "advisor-signin", "from": "advisor", "to": "chat_ui", "label": "signs in", "labelDy": -24 },
+    { "id": "chat-session", "from": "chat_ui", "to": "clients_db", "label": "session state", "variant": "dashed", "fromSide": "bottom", "toSide": "top", "labelDy": 24 },
+    { "id": "chat-route", "from": "chat_ui", "to": "message_router" },
+    { "id": "route-portfolio", "from": "message_router", "to": "portfolio_analyst", "label": "portfolio pasted", "fromSide": "top", "toSide": "left", "via": [[525, 160]] },
+    { "id": "route-construct", "from": "message_router", "to": "construction_agents", "label": "build / recommend portfolio", "fromSide": "right", "toSide": "left", "labelAt": [655, 231] },
+    { "id": "route-question", "from": "message_router", "to": "router_agent", "label": "question, profile loaded", "fromSide": "bottom", "toSide": "left", "labelDx": 45 },
+    { "id": "route-hypothetical", "from": "message_router", "to": "tot_crew", "label": "question, no profile", "variant": "dashed", "fromSide": "bottom", "toSide": "bottom", "via": [[525, 490], [1035, 490]], "labelAt": [531, 470] },
+    { "id": "analyst-data", "from": "yahoo", "to": "portfolio_analyst", "label": "pre-fetched market data", "fromSide": "bottom", "toSide": "top", "labelDy": 24 },
+    { "id": "router-straight", "from": "router_agent", "to": "react_agent", "label": "straight", "fromSide": "top", "toSide": "bottom" },
+    { "id": "router-tot", "from": "router_agent", "to": "tot_crew", "label": "tot", "fromSide": "right", "toSide": "left" },
+    { "id": "analyst-guard", "from": "portfolio_analyst", "to": "guardrails", "fromSide": "right", "toSide": "top" },
+    { "id": "construct-guard", "from": "construction_agents", "to": "guardrails", "fromSide": "top", "toSide": "top" },
+    { "id": "react-guard", "from": "react_agent", "to": "guardrails", "fromSide": "right", "toSide": "left", "via": [[1130, 307.5], [1130, 285]] },
+    { "id": "tot-guard", "from": "tot_crew", "to": "guardrails", "fromSide": "top", "toSide": "bottom" },
+    { "id": "guard-reply", "from": "guardrails", "to": "chat_ui", "label": "annotated answer", "variant": "emphasis", "fromSide": "top", "toSide": "top", "via": [[1235, 10], [295, 10]] }
+  ],
+  "cards": [
+    { "dot": "emerald", "title": "Build profile", "items": ["Single Portfolio Analyst agent -- no separate Data Aggregator, reasons directly over already-fetched data.", "Rollup alerts + Alpha Vantage cross-check bypass Guardrails: deterministic arithmetic, not model output."] },
+    { "dot": "amber", "title": "Construct a new portfolio", "items": ["construction_router() checks before the profile-loaded gate -- works with or without a client selected.", "Equity Agent: equities/ETFs only. Diversified Agent: equity + mutual fund + fixed income."] },
+    { "dot": "cyan", "title": "Answer a question", "items": ["No profile + not a construction request → Router Agent is skipped; ToT Crew handles it directly.", "ToT's 4th agent, Price Forecast Analyst, joins only for forward-looking questions (price target, predict)."] },
+    { "dot": "violet", "title": "Guardrails & providers", "items": ["ContentPolicyGuard, ConfidenceRouter, RelevancyEvaluator annotate every reply -- never block it.", "Claude Sonnet 5 is the only LLM. guardrails.py audits all 9 agents at startup: read-only."] }
+  ]
+}
