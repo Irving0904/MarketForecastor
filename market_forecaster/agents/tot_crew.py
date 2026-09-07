@@ -102,6 +102,10 @@ def build_tot_crew(message: str, profile_summary: str, raw_data: dict) -> tuple[
     DataAccessGuard("Risk Critic", [])
     DataAccessGuard("Lead Advisor", [])
     llm = get_crew_llm()
+    # The critic scores and critiques all three analysts plus a confidence
+    # line -- the default cap was truncating it mid-response (observed
+    # hitting exactly 600/600 output tokens and coming back unparseable).
+    critic_llm = get_crew_llm(max_tokens=1000)
     # The synthesizer weighs three analyst takes plus a critique into one
     # answer, which needs more room than a single-analyst paragraph.
     synthesis_llm = get_crew_llm(max_tokens=1200)
@@ -138,7 +142,7 @@ def build_tot_crew(message: str, profile_summary: str, raw_data: dict) -> tuple[
             "You are a skeptical reviewer whose job is to catch weak "
             "reasoning before it reaches the client."
         ),
-        llm=llm,
+        llm=critic_llm,
         verbose=False,
     )
     synthesizer = Agent(
@@ -177,10 +181,21 @@ def build_tot_crew(message: str, profile_summary: str, raw_data: dict) -> tuple[
             verbose=False,
         )
 
+    profile_block = (
+        f"Client profile: {profile_summary}"
+        if profile_summary
+        else (
+            "No client portfolio has been loaded yet -- treat this as a "
+            "fresh account with no existing holdings. Base your reasoning "
+            "only on whatever the client question itself states (e.g. a "
+            "budget or goal), and general market knowledge."
+        )
+    )
+
     thought_tasks = [
         Task(
             description=(
-                f"Client profile: {profile_summary}\n\n"
+                f"{profile_block}\n\n"
                 f"Client question: {message}"
                 f"{sources_block}\n\n"
                 f"Give one independent line of reasoning from the lens of "
@@ -279,8 +294,10 @@ def build_tot_crew(message: str, profile_summary: str, raw_data: dict) -> tuple[
             "weigh them, resolve disagreements, and give one clear final "
             "recommendation with brief reasoning. Keep any (Source: ...) "
             "citations the analysts used for claims you retain in your "
-            f"answer -- don't drop them, and don't invent new ones."
-            f"{forecast_synthesis_note}"
+            "answer -- don't drop them, and don't invent new ones. Be "
+            "concise: no restating the question, no filler preamble or "
+            "repeated caveats -- keep every piece of substantive "
+            f"reasoning, just state it efficiently.{forecast_synthesis_note}"
         ),
         expected_output=(
             "One clear final recommendation with brief reasoning, "
@@ -309,7 +326,7 @@ def tot_pipeline(message: str, session_state: dict) -> tuple[str, float | None]:
     ConfidenceRouter."""
     logger.info("tot_pipeline: message=%r", message)
     crew, critic_task = build_tot_crew(
-        message, session_state["summary"], session_state.get("raw_data", {})
+        message, session_state.get("summary", ""), session_state.get("raw_data", {})
     )
     answer = str(crew.kickoff())
     confidence_score = ConfidenceRouter.extract_score(critic_task.output.raw)

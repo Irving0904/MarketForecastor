@@ -45,3 +45,47 @@ def router_agent(message: str, profile_summary: str) -> str:
     route = "straight" if "straight" in label else "tot"
     logger.info("router_agent: raw_label=%r -> route=%r", label, route)
     return route
+
+
+CONSTRUCTION_ROUTER_PROMPT = ChatPromptTemplate.from_messages(
+    [
+        (
+            "system",
+            "Classify whether the advisor's question is asking to BUILD "
+            "or RECOMMEND a brand-new portfolio allocation (as opposed to "
+            "analyzing, explaining, or asking about an existing holding). "
+            "Reply with exactly one word:\n"
+            "'equity' — asks to build/recommend a portfolio using only "
+            "stocks/equities and/or ETFs, with no mention of also wanting "
+            "bonds, fixed income, or mutual funds.\n"
+            "'diversified' — asks to build/recommend a portfolio that "
+            "explicitly spans multiple asset classes (mentions "
+            "diversification, bonds/fixed income, or mutual funds "
+            "alongside stocks).\n"
+            "'none' — anything else: analyzing an existing holding, a "
+            "factual lookup, a why-did-this-move question, or any "
+            "question that isn't asking to construct a new portfolio.",
+        ),
+        ("human", "Question: {question}"),
+    ]
+)
+
+
+def construction_router(message: str) -> str:
+    """Classifies a message as a request to construct a new portfolio
+    ('equity' or 'diversified') or not ('none') -- checked in
+    orchestrator.py before the existing paste-a-portfolio / straight-vs-tot
+    routing, so it applies whether or not a client is currently loaded."""
+    logger.info("construction_router: classifying message=%r", message)
+    llm = get_chat_model(max_tokens=10)
+    chain = CONSTRUCTION_ROUTER_PROMPT | llm
+    response = chain.invoke({"question": message})
+    label = extract_text(response.content).strip().lower()
+    if "equity" in label:
+        route = "equity"
+    elif "diversif" in label:
+        route = "diversified"
+    else:
+        route = "none"
+    logger.info("construction_router: raw_label=%r -> route=%r", label, route)
+    return route

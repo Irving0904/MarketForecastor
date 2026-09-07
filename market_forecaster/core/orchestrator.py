@@ -14,9 +14,13 @@ raised, instead of only a generic "Error" surfacing in the UI.
 import json
 import logging
 
+from market_forecaster.agents.portfolio_construction import (
+    diversified_portfolio_pipeline,
+    equity_portfolio_pipeline,
+)
 from market_forecaster.agents.profile_crew import build_profile_summary_crew
 from market_forecaster.agents.react_agent import react_pipeline
-from market_forecaster.agents.router import router_agent
+from market_forecaster.agents.router import construction_router, router_agent
 from market_forecaster.agents.tot_crew import looks_like_forecast_question, tot_pipeline
 from market_forecaster.core.alerts import (
     build_portfolio_alerts,
@@ -175,13 +179,95 @@ def respond(
             "portfolio",
         )
 
-    if not profile_state.get("summary"):
-        return (
-            "Paste your portfolio first (CSV or a ticker list) so I have "
-            "something to analyze.",
-            profile_state,
-            "prompt",
+    # Checked before the no-profile / straight-vs-tot branches below so a
+    # "build me a portfolio" request routes to a construction specialist
+    # whether or not a client is currently loaded (e.g. both "my client
+    # has $100k, build a growth portfolio" with no client selected, and
+    # "rebalance this client into a diversified mix" with one loaded).
+    construction_route = construction_router(message)
+    if construction_route in ("equity", "diversified"):
+        pipeline = (
+            equity_portfolio_pipeline
+            if construction_route == "equity"
+            else diversified_portfolio_pipeline
         )
+        try:
+            _report(
+                progress,
+                0.3,
+                f"Step 1/2: Running {construction_route.title()} Portfolio "
+                "Agent...",
+            )
+            answer = pipeline(message, profile_state)
+            answer = _check_answer(message, answer)
+            _report(progress, 0.9, "Step 2/2: Finalizing answer...")
+        except RuntimeError as exc:
+            logger.warning(
+                "respond: missing API key on construction request: %s", exc
+            )
+            return str(exc), profile_state, "error"
+        except Exception:
+            logger.exception(
+                "respond: %s portfolio construction failed for message=%r",
+                construction_route,
+                message,
+            )
+            return (
+                "That request hit an unexpected error from the LLM "
+                "backend — this can happen intermittently. Try rephrasing "
+                "or asking again.",
+                profile_state,
+                "error",
+            )
+        return answer, profile_state, construction_route
+
+    if not profile_state.get("summary"):
+        # No client portfolio loaded yet -- still let the advisor ask a
+        # hypothetical / "build me a new portfolio" question (e.g. "my
+        # client has $100k to invest, build a growth portfolio") instead
+        # of hard-blocking every follow-up behind a paste-first prompt.
+        # The ReAct path needs real holdings data (session_state["raw_data"]
+        # / ["tickers"], see react_agent.py:build_react_agent) so it isn't
+        # viable with no profile; the ToT crew's agents are pure-reasoning
+        # (see tot_crew.py's module docstring) and already tolerate an
+        # empty profile_summary/raw_data, so route straight there instead
+        # of through router_agent (which itself expects an existing
+        # profile summary to classify against).
+        try:
+            _report(
+                progress,
+                0.2,
+                "Step 1/2: Running ToT strategy analysis for a hypothetical "
+                "scenario (no client portfolio on file)...",
+            )
+            answer, confidence_score = tot_pipeline(message, profile_state)
+            answer = _check_answer(message, answer)
+            if confidence_score is not None:
+                answer = ConfidenceRouter.annotate(
+                    answer, ConfidenceRouter.classify(confidence_score)
+                )
+            _report(progress, 0.9, "Step 2/2: Finalizing answer...")
+        except RuntimeError as exc:
+            logger.warning("respond: missing API key on hypothetical question: %s", exc)
+            return str(exc), profile_state, "error"
+        except Exception:
+            logger.exception(
+                "respond: hypothetical ToT pipeline failed for message=%r", message
+            )
+            return (
+                "That question hit an unexpected error from the LLM backend — "
+                "this can happen intermittently. Try rephrasing or asking "
+                "again.",
+                profile_state,
+                "error",
+            )
+        disclaimer = (
+            "[No client portfolio is loaded, so this is general guidance "
+            "for a hypothetical scenario, not analysis of an actual "
+            "account. Paste a portfolio anytime for client-specific "
+            "answers.]\n\n"
+        )
+        return disclaimer + answer, profile_state, "tot"
 
     route = None
     try:

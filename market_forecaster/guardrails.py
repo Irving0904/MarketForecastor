@@ -113,6 +113,8 @@ AGENT_TOOL_REGISTRY: dict[str, list[str]] = {
     "tot_crew.Risk Critic": [],
     "tot_crew.Lead Advisor": [],
     "tot_crew.Price Forecast Analyst": [],
+    "portfolio_construction.Equity Portfolio Agent": [],
+    "portfolio_construction.Diversified Portfolio Agent": [],
     "react_agent.ReAct portfolio assistant": [
         "get_holding_data", "search_filings", "search_client_history",
     ],
